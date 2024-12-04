@@ -206,6 +206,7 @@ def do_next_service_step(task, step_index, disable_ramdisk=None):
         LOG.info('Node %(node)s finished service step %(step)s',
                  {'node': node.uuid, 'step': step})
     utils.wipe_service_internal_info(task)
+    utils.node_update_cache(task)
     if CONF.agent.deploy_logs_collect == 'always' and not disable_ramdisk:
         driver_utils.collect_ramdisk_logs(task.node, label='service')
     _tear_down_node_service(task, disable_ramdisk)

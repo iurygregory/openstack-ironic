@@ -261,6 +261,7 @@ def do_next_clean_step(task, step_index, disable_ramdisk=None):
     # Clear clean_step
     node.clean_step = None
     utils.wipe_cleaning_internal_info(task)
+    utils.node_update_cache(task)
     node.save()
     if not disable_ramdisk:
         try:
