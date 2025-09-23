@@ -301,7 +301,11 @@ def _insert_vmedia_in_resource(task, resource, boot_url, boot_device,
     :raises: InvalidParameterValue, if no suitable virtual CD or DVD is
         found on the node.
     """
+    acceptable_id = task.driver.boot._get_acceptable_media_id(task, resource)
+
     for v_media in resource.virtual_media.get_members():
+        if acceptable_id is not None and v_media.identity != acceptable_id:
+            continue
         if boot_device not in v_media.media_types:
             # NOTE(janders): this conditional allows v_media that only
             # support DVD MediaType and NOT CD to also be used.
@@ -670,6 +674,9 @@ class RedfishVirtualMediaBoot(base.BootInterface):
                 % {'iface': task.node.get_interface('boot'),
                    'node': task.node.uuid, 'vendor': vendor,
                    'fwv': bmc_manager[0].firmware_version})
+
+    def _get_acceptable_media_id(self, task, resource):
+        return None
 
     def validate(self, task):
         """Validate the deployment information for the task's node.

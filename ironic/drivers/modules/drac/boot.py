@@ -69,6 +69,16 @@ class DracRedfishVirtualMediaBoot(redfish_boot.RedfishVirtualMediaBoot):
     def _validate_vendor(self, task, managers):
         pass  # assume people are doing the right thing
 
+    def _get_acceptable_media_id(self, task, resource):
+        if hasattr(resource, 'managers'):
+            for manager in resource.managers:
+                if (hasattr(manager, 'model')
+                        and manager.model == "17G Monolithic"):
+                    return "1"
+            return None
+        else:
+            return None
+
     @classmethod
     def _set_boot_device(cls, task, device, persistent=False):
         """Set boot device for a node.
