@@ -968,10 +968,10 @@ class RedfishFirmware(base.FirmwareInterface):
         :param current_update: the current firmware update being processed
         :returns: True if should stop polling, False to continue
         """
-        node = task.node
-
         # Upgrade lock at the start since we may modify driver_internal_info
         task.upgrade_lock()
+
+        node = task.node
 
         try:
             sushy_task = task_monitor.get_task()
@@ -1078,14 +1078,13 @@ class RedfishFirmware(base.FirmwareInterface):
         :param current_update: the current firmware update being processed
         :returns: True if reboot was triggered, False otherwise
         """
-        node = task.node
-
         if current_update.get('bios_reboot_triggered'):
             # Already triggered, just keep polling
             return False
 
         # Upgrade lock at the start since we may modify driver_internal_info
         task.upgrade_lock()
+        node = task.node
 
         try:
             sushy_task = task_monitor.get_task()
@@ -1138,10 +1137,9 @@ class RedfishFirmware(base.FirmwareInterface):
         :param settings: firmware update settings
         :param current_update: the current firmware update being processed
         """
-        node = task.node
-
         # Upgrade lock at the start since we may modify driver_internal_info
         task.upgrade_lock()
+        node = task.node
 
         # Check if this is BMC version checking
         if current_update.get('bmc_version_checking'):
