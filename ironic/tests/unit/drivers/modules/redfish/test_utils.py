@@ -25,6 +25,7 @@ import sushy
 
 from ironic.common import exception
 from ironic.drivers.modules.redfish import utils as redfish_utils
+from ironic.tests import base
 from ironic.tests.unit.db import base as db_base
 from ironic.tests.unit.db import utils as db_utils
 from ironic.tests.unit.objects import utils as obj_utils
@@ -843,3 +844,64 @@ class RedfishUtilsSystemTestCase(db_base.DbTestCase):
         fake_conn.get_system.assert_has_calls(expected_get_system_calls)
         fake_system.assert_called_once_with('bar')
         self.assertEqual(fake_conn.get_system.call_count, 2)
+
+
+class AsyncSessionCacheTestCase(base.TestCase):
+
+    def setUp(self):
+        super(AsyncSessionCacheTestCase, self).setUp()
+        self.driver_info = {
+            'address': 'https://example.com',
+            'username': 'admin',
+            'password': 'password',
+            'verify_ca': True,
+            'auth_type': 'auto',
+            'system_id': '/redfish/v1/Systems/1',
+        }
+        # Clear the cache before each test
+        redfish_utils.AsyncSessionCache._sessions.clear()
+
+    def tearDown(self):
+        super(AsyncSessionCacheTestCase, self).tearDown()
+        redfish_utils.AsyncSessionCache._sessions.clear()
+
+    def test_make_session_key(self):
+        """Test that session key is generated correctly."""
+        key = redfish_utils.AsyncSessionCache._make_session_key(
+            self.driver_info)
+        self.assertIsInstance(key, tuple)
+        self.assertEqual(4, len(key))
+        self.assertEqual('https://example.com', key[0])
+        self.assertEqual('admin', key[1])
+        self.assertTrue(key[2])  # verify_ca
+
+    def test_make_session_key_same_info(self):
+        """Test that same driver_info produces same key."""
+        key1 = redfish_utils.AsyncSessionCache._make_session_key(
+            self.driver_info)
+        key2 = redfish_utils.AsyncSessionCache._make_session_key(
+            self.driver_info)
+        self.assertEqual(key1, key2)
+
+    def test_make_session_key_different_password(self):
+        """Test that different passwords produce different keys."""
+        key1 = redfish_utils.AsyncSessionCache._make_session_key(
+            self.driver_info)
+        other_info = dict(self.driver_info, password='other')
+        key2 = redfish_utils.AsyncSessionCache._make_session_key(
+            other_info)
+        self.assertNotEqual(key1, key2)
+
+    def test_evict(self):
+        """Test evicting a session from the cache."""
+        key = redfish_utils.AsyncSessionCache._make_session_key(
+            self.driver_info)
+        mock_client = mock.MagicMock()
+        redfish_utils.AsyncSessionCache._sessions[key] = mock_client
+
+        redfish_utils.AsyncSessionCache.evict(self.driver_info)
+        self.assertNotIn(key, redfish_utils.AsyncSessionCache._sessions)
+
+    def test_evict_nonexistent(self):
+        """Test evicting a non-existent session does not fail."""
+        redfish_utils.AsyncSessionCache.evict(self.driver_info)

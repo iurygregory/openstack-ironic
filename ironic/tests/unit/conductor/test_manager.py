@@ -5465,6 +5465,20 @@ class SensorsTestCase(mgr_utils.ServiceSetUpMixin, db_base.DbTestCase):
         self.assertDictEqual(metrics_dict.get('payload'),
                              metric)
 
+    @mock.patch.object(manager.ConductorManager, '_spawn_worker',
+                       autospec=True)
+    def test__send_sensor_data_async_collection(self, mock_spawn):
+        """Test _send_sensor_data with async collection enabled."""
+        self.config(send_sensor_data=True,
+                    group='sensor_data')
+        self.config(enable_async_collection=True,
+                    group='sensor_data')
+        # Just verify the method runs without error when async is enabled
+        # and no nodes are present
+        with mock.patch.object(self.service, 'iter_nodes',
+                               autospec=True, return_value=[]):
+            self.service._send_sensor_data(self.context)
+
 
 @mgr_utils.mock_record_keepalive
 class BootDeviceTestCase(mgr_utils.ServiceSetUpMixin, db_base.DbTestCase):

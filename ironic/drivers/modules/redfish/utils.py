@@ -14,6 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import asyncio
 import collections
 import hashlib
 import os
@@ -28,6 +29,7 @@ import tenacity
 
 from ironic.common import exception
 from ironic.common.i18n import _
+from ironic.common import redfish as async_redfish
 from ironic.common import utils as common_utils
 from ironic.conf import CONF
 from ironic.drivers import utils as driver_utils
@@ -384,6 +386,110 @@ class SessionCache(object):
         # at BMC. Trouble is that contemporary sushy (1.6.0) does
         # does not do that.
         cls._sessions.pop(session_key, None)
+
+
+class AsyncSessionCache(object):
+    """Cache of async Redfish sessions for asynchronous sensor collection.
+
+    Separate from the synchronous ``SessionCache`` because the underlying
+    client objects (``AsyncRedfishClient`` / httpx) are incompatible with
+    the synchronous sushy objects.
+
+    The cache uses ``asyncio.Lock`` instances as placeholders while a
+    session is being established, so that only one coroutine creates the
+    session for a given BMC while others wait.  Between yield points there
+    is no concurrency, so the initial lock placement is race-free.
+    """
+
+    _sessions = {}
+
+    @classmethod
+    def _make_session_key(cls, driver_info):
+        password = driver_info.get('password') or ''
+        pw_hash = hashlib.pbkdf2_hmac(
+            'sha512',
+            password.encode('utf-8'),
+            str(driver_info.get('address', '') * 4).encode('utf-8'),
+            600000)
+        return (
+            driver_info.get('address'),
+            driver_info.get('username'),
+            driver_info.get('verify_ca'),
+            pw_hash.hex(),
+        )
+
+    @classmethod
+    async def get_session(cls, driver_info):
+        """Get or create an async Redfish client for ``driver_info``.
+
+        :param driver_info: dict with Redfish connection parameters as
+            returned by ``parse_driver_info``.
+        :returns: an initialized ``AsyncRedfishClient``.
+        """
+        session_key = cls._make_session_key(driver_info)
+
+        session_or_lock = cls._sessions.get(session_key)
+        if isinstance(session_or_lock, async_redfish.AsyncRedfishClient):
+            return session_or_lock
+
+        if session_or_lock is None:
+            session_or_lock = asyncio.Lock()
+            cls._sessions[session_key] = session_or_lock
+
+        async with session_or_lock:
+            current = cls._sessions.get(session_key)
+            if isinstance(current, async_redfish.AsyncRedfishClient):
+                return current
+
+            LOG.debug('Creating async Redfish session for %(endpoint)s',
+                      {'endpoint': driver_info.get('address')})
+
+            client = async_redfish.AsyncRedfishClient(
+                base_url=driver_info['address'],
+                username=driver_info.get('username'),
+                password=driver_info.get('password'),
+                verify=driver_info.get('verify_ca', True),
+                auth_type=driver_info.get('auth_type', 'auto'),
+                root_prefix=driver_info.get('root_prefix'),
+                default_request_timeout=max(
+                    CONF.redfish.connect_timeout,
+                    CONF.redfish.read_timeout),
+            )
+            await client.__aenter__()
+
+            if CONF.redfish.connection_cache_size:
+                cls._sessions[session_key] = client
+                if len(cls._sessions) > CONF.redfish.connection_cache_size:
+                    cls._expire_oldest_session()
+            else:
+                cls._sessions.pop(session_key, None)
+
+            return client
+
+    @classmethod
+    def evict(cls, driver_info):
+        """Remove a cached session for the given driver_info."""
+        session_key = cls._make_session_key(driver_info)
+        cls._sessions.pop(session_key, None)
+
+    @classmethod
+    def _expire_oldest_session(cls):
+        """Expire the oldest cached session."""
+        for key, value in list(cls._sessions.items()):
+            if isinstance(value, async_redfish.AsyncRedfishClient):
+                cls._sessions.pop(key, None)
+                return
+
+    @classmethod
+    async def close_all(cls):
+        """Close all cached async sessions."""
+        for key, value in list(cls._sessions.items()):
+            if isinstance(value, async_redfish.AsyncRedfishClient):
+                try:
+                    await value.close()
+                except Exception:
+                    pass
+        cls._sessions.clear()
 
 
 def get_update_service(node):

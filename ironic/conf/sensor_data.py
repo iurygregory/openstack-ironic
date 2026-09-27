@@ -70,6 +70,14 @@ opts = [
                        'this conductor\'s management. This option supersedes '
                        'the ``send_sensor_data_for_undeployed_nodes`` '
                        'setting.')),
+    cfg.BoolOpt('enable_async_collection',
+                default=False,
+                help=_('Enable asynchronous sensor data collection using '
+                       'AsyncIO. When enabled, drivers that support async '
+                       'collection (currently Redfish only) will collect '
+                       'sensor data in parallel using an event loop instead '
+                       'of worker threads. This can dramatically improve '
+                       'collection times for large numbers of nodes.')),
 ]
 
 

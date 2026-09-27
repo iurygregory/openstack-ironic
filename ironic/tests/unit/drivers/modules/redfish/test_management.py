@@ -2933,3 +2933,107 @@ class SensorDataTestCase(db_base.DbTestCase):
 
         expected = {'Drive': {}}
         self.assertEqual(result, expected)
+
+
+class AsyncSensorDataTestCase(db_base.DbTestCase):
+
+    def setUp(self):
+        super(AsyncSensorDataTestCase, self).setUp()
+        self.config(enabled_hardware_types=['redfish'],
+                    enabled_power_interfaces=['redfish'],
+                    enabled_boot_interfaces=['redfish-virtual-media'],
+                    enabled_management_interfaces=['redfish'],
+                    enabled_inspect_interfaces=['redfish'],
+                    enabled_bios_interfaces=['redfish'])
+        self.node = obj_utils.create_test_node(
+            self.context, driver='redfish', driver_info=INFO_DICT)
+
+    def test_get_sensor_data_async_returns_coroutine(self):
+        """Test that get_sensor_data_async returns a coroutine."""
+        node_dict = {
+            'uuid': self.node.uuid,
+            'name': self.node.name,
+            'driver': self.node.driver,
+            'driver_info': self.node.driver_info,
+            'instance_uuid': self.node.instance_uuid,
+        }
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=True) as task:
+            result = task.driver.management.get_sensor_data_async(node_dict)
+            # Should return a coroutine, not raise NotImplementedError
+            import asyncio
+            self.assertTrue(asyncio.iscoroutine(result))
+            # Clean up the coroutine to avoid RuntimeWarning
+            result.close()
+
+    def test_sensor2dict_async(self):
+        """Test _sensor2dict_async with dict data."""
+        data = {
+            'MemberId': '0',
+            'Reading': 6000,
+            'ReadingUnits': 'RPM',
+            'Name': 'CPU Fan',
+        }
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=True) as task:
+            result = task.driver.management._sensor2dict_async(
+                data, 'MemberId', 'Reading', 'ReadingUnits', 'MissingField')
+            expected = {
+                'MemberId': '0',
+                'Reading': 6000,
+                'ReadingUnits': 'RPM',
+            }
+            self.assertEqual(expected, result)
+
+    def test_sensor2dict_async_empty_dict(self):
+        """Test _sensor2dict_async with empty dict."""
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=True) as task:
+            result = task.driver.management._sensor2dict_async(
+                {}, 'MemberId', 'Reading')
+            self.assertEqual({}, result)
+
+    def test_sensor2dict_async_non_dict(self):
+        """Test _sensor2dict_async with non-dict input."""
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=True) as task:
+            result = task.driver.management._sensor2dict_async(
+                'not a dict', 'MemberId')
+            self.assertEqual({}, result)
+
+    def test_get_sensor_drive_async(self):
+        """Test _get_sensor_drive_async with drive dict data."""
+        drive_data = {
+            'Name': 'Drive 0',
+            'Model': 'Samsung SSD',
+            'CapacityBytes': 500000000000,
+            'Status': {
+                'State': 'Enabled',
+                'Health': 'OK',
+            }
+        }
+        from ironic.drivers.modules.redfish import management as mgmt
+        unique_name, sensor = mgmt.RedfishManagement._get_sensor_drive_async(
+            drive_data, 'RAID.Integrated.1-1', '1')
+
+        self.assertEqual('Drive 0:RAID.Integrated.1-1@1', unique_name)
+        self.assertEqual('Samsung SSD', sensor['Model'])
+        self.assertEqual(500000000000, sensor['CapacityBytes'])
+        self.assertEqual('Enabled', sensor['State'])
+        self.assertEqual('OK', sensor['Health'])
+
+    def test_get_sensor_drive_async_no_state(self):
+        """Test _get_sensor_drive_async without State but with Health."""
+        drive_data = {
+            'Name': 'Drive 0',
+            'Model': 'Samsung SSD',
+            'CapacityBytes': 500000000000,
+            'Status': {
+                'Health': 'OK',
+            }
+        }
+        from ironic.drivers.modules.redfish import management as mgmt
+        unique_name, sensor = mgmt.RedfishManagement._get_sensor_drive_async(
+            drive_data, 'Storage1', 'System1')
+
+        self.assertEqual('Enabled', sensor['State'])
